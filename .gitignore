@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+coverage/
+
+# Environment variables & Secrets (NEVER commit these!)
+.env
+.env.*
+!.env.example
+
+# SSH keys & certificates (NEVER commit these!)
+*.pem
+*.key
+*.ppk
+*.pub
+id_rsa*
+id_ed25519*
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
