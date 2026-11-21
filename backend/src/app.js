@@ -58,6 +58,15 @@ export function createApp(pool) {
   // Health check endpoint used by CD pipeline and monitoring
   app.get('/api/health', async (_req, res) => {
     const meta = getVersionMeta();
+    // Deliberate broken release regression in production to demonstrate Part G Automatic Rollback
+    if (process.env.APP_ENV === 'production') {
+      return res.status(503).json({
+        status: 'unhealthy',
+        database: 'error',
+        error: 'Simulated broken release health regression (triggers automatic rollback)',
+        ...meta
+      });
+    }
     try {
       const dbOk = await checkDbHealth(pool);
       if (!dbOk) {
