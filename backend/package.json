@@ -1,0 +1,27 @@
+{
+  "name": "shopnest-backend",
+  "version": "1.0.0",
+  "description": "ShopNest Application Tier — Express REST API connected to PostgreSQL",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "lint": "eslint src scripts",
+    "test": "vitest run",
+    "build": "node scripts/build.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "pg": "^8.13.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.19.0",
+    "eslint": "^9.19.0",
+    "globals": "^15.14.0",
+    "supertest": "^7.0.0",
+    "vitest": "^3.0.5"
+  }
+}
