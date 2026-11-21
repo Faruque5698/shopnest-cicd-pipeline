@@ -1,0 +1,255 @@
+name: CD Pipeline
+
+on:
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_ref:
+        description: "Branch or commit SHA to deploy (defaults to main)"
+        required: false
+        default: "main"
+
+permissions:
+  contents: read
+
+jobs:
+  package-release:
+    name: Package Versioned Release
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    outputs:
+      commit_sha: ${{ steps.meta.outputs.commit_sha }}
+      short_sha: ${{ steps.meta.outputs.short_sha }}
+    steps:
+      - name: Checkout verified commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || inputs.deploy_ref || github.sha }}
+
+      - name: Record exact commit SHA
+        id: meta
+        run: |
+          FULL_SHA="$(git rev-parse HEAD)"
+          echo "commit_sha=${FULL_SHA}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${FULL_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "Packaging verified commit: ${FULL_SHA}"
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build backend distribution
+        working-directory: backend
+        env:
+          GIT_COMMIT_SHA: ${{ steps.meta.outputs.commit_sha }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build frontend production bundle
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Create release archive
+        run: |
+          mkdir -p release-stage/frontend release-stage/backend release-stage/database release-stage/scripts
+          cp -r frontend/dist/. release-stage/frontend/
+          cp -r backend/dist/. release-stage/backend/
+          cp -r database/. release-stage/database/
+          cp scripts/deploy-blue-green.sh release-stage/scripts/
+          chmod +x release-stage/scripts/deploy-blue-green.sh
+          tar -czf "release-${{ steps.meta.outputs.commit_sha }}.tar.gz" -C release-stage .
+          ls -lh "release-${{ steps.meta.outputs.commit_sha }}.tar.gz"
+
+      - name: Upload versioned release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shopnest-release-${{ steps.meta.outputs.short_sha }}
+          path: release-${{ steps.meta.outputs.commit_sha }}.tar.gz
+          retention-days: 14
+          if-no-files-found: error
+
+  deploy-staging:
+    name: Deploy to Staging (Auto Blue-Green)
+    needs: [package-release]
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+    steps:
+      - name: Download release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: shopnest-release-${{ needs.package-release.outputs.short_sha }}
+
+      - name: Configure SSH private key securely
+        env:
+          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Transfer archive and execute Blue-Green deployment on Staging
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          APP_ENV: ${{ vars.APP_ENV }}
+          DB_NAME: ${{ vars.DB_NAME }}
+          DB_PORT: ${{ vars.DB_PORT }}
+          DB_SSL: ${{ vars.DB_SSL }}
+          DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT }}
+          NGINX_SLOT_FILE: ${{ vars.NGINX_SLOT_FILE }}
+          BLUE_PORT: ${{ vars.BLUE_PORT }}
+          GREEN_PORT: ${{ vars.GREEN_PORT }}
+          PUBLIC_PORT: ${{ vars.PUBLIC_PORT }}
+          COMMIT_SHA: ${{ needs.package-release.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS="-o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key"
+          ARCHIVE="release-${COMMIT_SHA}.tar.gz"
+          scp ${SSH_OPTS} "${ARCHIVE}" "${EC2_USER}@${EC2_HOST}:/tmp/${ARCHIVE}"
+
+          # Write staging .env securely without exposing secrets in logs
+          ssh ${SSH_OPTS} "${EC2_USER}@${EC2_HOST}" "mkdir -p '${DEPLOY_ROOT}' && umask 077 && cat > '${DEPLOY_ROOT}/.env'" <<EOF
+          DB_HOST=${DB_HOST}
+          DB_PORT=${DB_PORT}
+          DB_NAME=${DB_NAME}
+          DB_USER=${DB_USER}
+          DB_PASSWORD=${DB_PASSWORD}
+          DB_SSL=${DB_SSL}
+          EOF
+
+          # Execute Blue-Green deployment with health check & automatic rollback
+          ssh ${SSH_OPTS} "${EC2_USER}@${EC2_HOST}" \
+            "tar -xzf '/tmp/${ARCHIVE}' -C /tmp scripts/deploy-blue-green.sh && chmod +x /tmp/scripts/deploy-blue-green.sh && \
+            APP_ENV='${APP_ENV}' \
+            DEPLOY_ROOT='${DEPLOY_ROOT}' \
+            NGINX_SLOT_FILE='${NGINX_SLOT_FILE}' \
+            GIT_COMMIT_SHA='${COMMIT_SHA}' \
+            BLUE_PORT='${BLUE_PORT}' \
+            GREEN_PORT='${GREEN_PORT}' \
+            PUBLIC_PORT='${PUBLIC_PORT}' \
+            RELEASE_ARCHIVE='/tmp/${ARCHIVE}' \
+            /tmp/scripts/deploy-blue-green.sh && \
+            rm -f '/tmp/${ARCHIVE}'" 2>&1 | tee staging-deploy.log
+
+      - name: Upload Staging deployment log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-log-staging-${{ needs.package-release.outputs.short_sha }}
+          path: staging-deploy.log
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Write Staging deployment summary
+        if: always()
+        run: |
+          {
+            echo "### Staging Deployment Summary"
+            echo "- **Environment:** \`staging\`"
+            echo "- **Commit SHA:** \`${{ needs.package-release.outputs.commit_sha }}\`"
+            echo "- **Outcome:** \`${{ job.status }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-production:
+    name: Deploy to Production (Manual Approval + Zero-Downtime)
+    needs: [package-release, deploy-staging]
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - name: Download verified release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: shopnest-release-${{ needs.package-release.outputs.short_sha }}
+
+      - name: Configure SSH private key securely
+        env:
+          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Transfer archive and execute Blue-Green deployment on Production
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          APP_ENV: ${{ vars.APP_ENV }}
+          DB_NAME: ${{ vars.DB_NAME }}
+          DB_PORT: ${{ vars.DB_PORT }}
+          DB_SSL: ${{ vars.DB_SSL }}
+          DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT }}
+          NGINX_SLOT_FILE: ${{ vars.NGINX_SLOT_FILE }}
+          BLUE_PORT: ${{ vars.BLUE_PORT }}
+          GREEN_PORT: ${{ vars.GREEN_PORT }}
+          PUBLIC_PORT: ${{ vars.PUBLIC_PORT }}
+          COMMIT_SHA: ${{ needs.package-release.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS="-o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key"
+          ARCHIVE="release-${COMMIT_SHA}.tar.gz"
+          scp ${SSH_OPTS} "${ARCHIVE}" "${EC2_USER}@${EC2_HOST}:/tmp/${ARCHIVE}"
+
+          # Write production .env securely without exposing secrets in logs
+          ssh ${SSH_OPTS} "${EC2_USER}@${EC2_HOST}" "mkdir -p '${DEPLOY_ROOT}' && umask 077 && cat > '${DEPLOY_ROOT}/.env'" <<EOF
+          DB_HOST=${DB_HOST}
+          DB_PORT=${DB_PORT}
+          DB_NAME=${DB_NAME}
+          DB_USER=${DB_USER}
+          DB_PASSWORD=${DB_PASSWORD}
+          DB_SSL=${DB_SSL}
+          EOF
+
+          # Execute Blue-Green zero-downtime deployment with health check & auto-rollback
+          ssh ${SSH_OPTS} "${EC2_USER}@${EC2_HOST}" \
+            "tar -xzf '/tmp/${ARCHIVE}' -C /tmp scripts/deploy-blue-green.sh && chmod +x /tmp/scripts/deploy-blue-green.sh && \
+            APP_ENV='${APP_ENV}' \
+            DEPLOY_ROOT='${DEPLOY_ROOT}' \
+            NGINX_SLOT_FILE='${NGINX_SLOT_FILE}' \
+            GIT_COMMIT_SHA='${COMMIT_SHA}' \
+            BLUE_PORT='${BLUE_PORT}' \
+            GREEN_PORT='${GREEN_PORT}' \
+            PUBLIC_PORT='${PUBLIC_PORT}' \
+            RELEASE_ARCHIVE='/tmp/${ARCHIVE}' \
+            /tmp/scripts/deploy-blue-green.sh && \
+            rm -f '/tmp/${ARCHIVE}'" 2>&1 | tee production-deploy.log
+
+      - name: Upload Production deployment log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-log-production-${{ needs.package-release.outputs.short_sha }}
+          path: production-deploy.log
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Write Production deployment summary
+        if: always()
+        run: |
+          {
+            echo "### Production Deployment Summary"
+            echo "- **Environment:** \`production\`"
+            echo "- **Strategy:** Blue-Green Zero-Downtime (Nginx graceful reload)"
+            echo "- **Commit SHA:** \`${{ needs.package-release.outputs.commit_sha }}\`"
+            echo "- **Outcome:** \`${{ job.status }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
