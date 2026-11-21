@@ -107,7 +107,7 @@ export default function App() {
           <span className="brand-icon" aria-hidden="true">🛍️</span>
           <div>
             <h1>ShopNest</h1>
-            <p className="tagline">Zero-Downtime Three-Tier E-Commerce Platform</p>
+            <p className="tagline">v1.1 · Zero-Downtime Three-Tier E-Commerce Platform</p>
           </div>
         </div>
 
