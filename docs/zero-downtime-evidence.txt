@@ -1,0 +1,18 @@
+==================================================================
+ShopNest Continuous Zero-Downtime Verification
+Target URL : <PRODUCTION_LIVE_URL>
+Duration   : 60s (polling every 0.35s)
+Started At : 2026-11-21T15:38:06Z
+==================================================================
+[15:38:06] #1  HTTP 200 (API) / 200 (UI)  --> LIVE VERSION TRANSITION: initial -> blue@d837d69
+[15:38:31] #15  HTTP 200 (API) / 200 (UI)  | Active: blue@d837d69 | Failed: 0
+[15:38:35] #18  HTTP 200 (API) / 200 (UI)  --> LIVE VERSION TRANSITION: blue@d837d69 -> green@d837d69
+[15:38:56] #30  HTTP 200 (API) / 200 (UI)  | Active: green@d837d69 | Failed: 0
+==================================================================
+Zero-Downtime Verification Summary
+Total Requests : 35
+Succeeded (200): 35
+Failed         : 0
+Availability   : 100.00%
+Final Active   : green@d837d69
+==================================================================
