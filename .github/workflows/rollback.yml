@@ -33,16 +33,19 @@ jobs:
           ref: main
           path: main-scripts
 
-      - name: Checkout target earlier commit (${{ inputs.target_sha }})
+      - name: Checkout repository with full history for target commit (${{ inputs.target_sha }})
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.target_sha }}
+          fetch-depth: 0
           path: target-app
 
-      - name: Resolve exact full commit SHA
+      - name: Checkout target commit and resolve full SHA
         id: meta
         working-directory: target-app
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
         run: |
+          git checkout "${TARGET_SHA}"
           FULL_SHA="$(git rev-parse HEAD)"
           echo "commit_sha=${FULL_SHA}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${FULL_SHA:0:7}" >> "$GITHUB_OUTPUT"
