@@ -66,7 +66,7 @@ jobs:
           cp -r database/. release-stage/database/
           cp scripts/deploy-blue-green.sh release-stage/scripts/
           chmod +x release-stage/scripts/deploy-blue-green.sh
-          tar -czf "release-${{ steps.meta.outputs.commit_sha }}.tar.gz" -C release-stage .
+          tar -czf "release-${{ steps.meta.outputs.commit_sha }}.tar.gz" -C release-stage frontend backend database scripts
           ls -lh "release-${{ steps.meta.outputs.commit_sha }}.tar.gz"
 
       - name: Upload versioned release artifact

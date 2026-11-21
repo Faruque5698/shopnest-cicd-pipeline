@@ -75,7 +75,7 @@ jobs:
           cp -r target-app/database/. rollback-stage/database/
           cp main-scripts/scripts/deploy-blue-green.sh rollback-stage/scripts/
           chmod +x rollback-stage/scripts/deploy-blue-green.sh
-          tar -czf "rollback-${{ steps.meta.outputs.commit_sha }}.tar.gz" -C rollback-stage .
+          tar -czf "rollback-${{ steps.meta.outputs.commit_sha }}.tar.gz" -C rollback-stage frontend backend database scripts
 
       - name: Upload rollback archive artifact
         uses: actions/upload-artifact@v4

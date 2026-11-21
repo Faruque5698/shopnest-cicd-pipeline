@@ -3,9 +3,13 @@ import pg from 'pg';
 const { Pool } = pg;
 
 export function createPool() {
+  const sslConfig =
+    process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false;
+
   if (process.env.DATABASE_URL) {
     return new Pool({
       connectionString: process.env.DATABASE_URL,
+      ssl: sslConfig,
       connectionTimeoutMillis: 3000
     });
   }
@@ -16,6 +20,7 @@ export function createPool() {
     database: process.env.DB_NAME || 'shopnest_dev',
     user: process.env.DB_USER || 'shopnest_user',
     password: process.env.DB_PASSWORD || '',
+    ssl: sslConfig,
     connectionTimeoutMillis: 3000
   });
 }
