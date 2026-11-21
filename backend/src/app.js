@@ -29,7 +29,7 @@ export function calculateOrderTotals(items) {
   const subtotal = Number(
     items.reduce((sum, item) => sum + Number(item.price) * Number(item.quantity), 0).toFixed(2)
   );
-  const tax = Number((subtotal * 0.05).toFixed(2));
+  const tax = Number((subtotal * 0.05).toFixed(2)); // 5% standard sales tax
   const total = Number((subtotal + tax).toFixed(2));
   return { subtotal, tax, total };
 }
