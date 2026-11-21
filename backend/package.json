@@ -1,6 +1,6 @@
 {
   "name": "shopnest-backend",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "ShopNest Application Tier — Express REST API connected to PostgreSQL",
   "type": "module",
   "main": "src/server.js",
