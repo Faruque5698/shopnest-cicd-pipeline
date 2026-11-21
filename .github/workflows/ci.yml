@@ -19,7 +19,8 @@ permissions:
 jobs:
   security-hygiene:
     name: Security Hygiene Check
-    runs-on: ubuntu-latest
+  runs-on: ubuntu-latest
+      invalid_indent: [unclosed
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
