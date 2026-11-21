@@ -17,10 +17,10 @@ permissions:
   contents: read
 
 jobs:
+  # Fixed YAML indentation and syntax (Part H)
   security-hygiene:
     name: Security Hygiene Check
-  runs-on: ubuntu-latest
-      invalid_indent: [unclosed
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
